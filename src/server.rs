@@ -1,4 +1,4 @@
-#[cfg(target_feature = "avx2")]
+#[cfg(target_feature = "avx512f")]
 use std::arch::x86_64::*;
 use std::{marker::PhantomData, ops::Range, time::Instant};
 
@@ -1157,7 +1157,8 @@ where
     }
 }
 
-#[cfg(not(target_feature = "avx2"))]
+// #[cfg(not(target_feature = "avx512f"))]
+#[cfg(not(target_feature = "avx512f"))]
 #[allow(non_camel_case_types)]
 type __m512i = u64;
 

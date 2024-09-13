@@ -130,12 +130,12 @@ pub fn concat_horizontal(v_a: &[Vec<u64>], a_rows: usize, a_cols: usize) -> Vec<
     out
 }
 
-#[cfg(target_feature = "avx2")]
+#[cfg(target_feature = "avx512f")]
 pub fn is_avx() -> bool {
     true
 }
 
-#[cfg(not(target_feature = "avx2"))]
+#[cfg(not(target_feature = "avx512f"))]
 pub fn is_avx() -> bool {
     false
 }

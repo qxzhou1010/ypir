@@ -4,6 +4,7 @@ use spiral_rs::{arith::*, params::*};
 
 use super::server::ToM512;
 
+#[cfg(target_feature = "avx512f")]
 pub fn fast_batched_dot_product_avx512<const K: usize, T: Copy>(
     params: &Params,
     c: &mut [u64],
@@ -129,6 +130,96 @@ pub fn fast_batched_dot_product_avx512<const K: usize, T: Copy>(
         }
     }
 }
+
+
+
+#[cfg(not(target_feature = "avx512f"))]
+pub fn fast_batched_dot_product_avx512<const K: usize, T: Copy>(
+    params: &Params,
+    c: &mut [u64],
+    a: &[u64],
+    a_elems: usize,
+    b_t: &[T], // transposed
+    b_rows: usize,
+    b_cols: usize,
+) where
+    *const T: ToM512,
+{
+    assert_eq!(a_elems, b_rows);
+
+    let simd_width = 8;
+
+    let chunk_size = (8192 / K.next_power_of_two()).min(a_elems / simd_width);
+    let num_chunks = (a_elems / simd_width) / chunk_size;
+
+    let j_chunk_size = 1;
+    let j_num_chunks = b_cols / j_chunk_size;
+
+    let res_mut_slc = c;
+
+    unsafe {
+        let mut a_slcs: [&[u64]; K] = [&[]; K];
+        for (slc_mut, chunk) in a_slcs.iter_mut().zip(a.chunks_exact(a.len() / K)) {
+            *slc_mut = chunk;
+        }
+
+        let b_ptr = b_t.as_ptr();
+
+        for k_outer in 0..num_chunks {
+            for j_outer in 0..j_num_chunks {
+                for j_inner in 0..j_chunk_size {
+                    let j = j_outer * j_chunk_size + j_inner;
+
+                    let mut total_sum_lo = [0u128; K];
+                    let mut total_sum_hi = [0u128; K];
+                    let mut tmp = [0u64; K];
+
+                    for k_inner in 0..chunk_size {
+                        let k = simd_width * (k_outer * chunk_size + k_inner);
+
+                        let a_idx = k;
+                        let b_idx = j * b_rows + k;
+                        let b_val = b_ptr.add(b_idx).to_m512();
+
+                        for batch in 0..K {
+                            tmp[batch] = a_slcs[batch][a_idx];
+                        }
+
+                        for batch in 0..K {
+                            let a_val_lo = tmp[batch] as u128;
+                            let a_val_hi = (tmp[batch] >> 32) as u128;
+                            let b_val_lo = (b_val & 0xFFFFFFFF) as u128;
+                            let b_val_hi = (b_val >> 32) as u128;
+
+                            total_sum_lo[batch] = total_sum_lo[batch]
+                                .checked_add(a_val_lo * b_val_lo)
+                                .expect("Overflow occurred in total_sum_lo calculation");
+                            total_sum_hi[batch] = total_sum_hi[batch]
+                                .checked_add(a_val_hi * b_val_hi)
+                                .expect("Overflow occurred in total_sum_hi calculation");
+                        }
+                    }
+
+                    let res_mut_slcs = res_mut_slc.chunks_exact_mut(res_mut_slc.len() / K);
+                    for (batch, res_mut_slc) in (0..K).zip(res_mut_slcs) {
+                        let res_lo = total_sum_lo[batch] as u64;
+                        let res_hi = total_sum_hi[batch] as u64;
+
+                        let (lo, hi) = (
+                            barrett_coeff_u64(params, res_lo as u64, 0),
+                            barrett_coeff_u64(params, res_hi as u64, 1),
+                        );
+
+                        let res = params.crt_compose_2(lo, hi);
+                        res_mut_slc[j] = barrett_u64(params, res_mut_slc[j] + res);
+                    }
+                }
+            }
+        }
+    }
+}
+
+
 
 #[cfg(test)]
 mod test {

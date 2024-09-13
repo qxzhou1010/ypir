@@ -678,6 +678,8 @@ pub fn fast_add_into(res: &mut PolyMatrixNTT, a: &PolyMatrixNTT) {
     }
 }
 
+
+#[cfg(target_feature="axv512f")]
 pub fn fast_multiply_no_reduce(
     params: &Params,
     res: &mut PolyMatrixNTT,
@@ -728,6 +730,114 @@ pub fn fast_multiply_no_reduce(
     }
 }
 
+
+#[cfg(not(target_feature = "avx512f"))]
+pub fn fast_multiply_no_reduce(
+    params: &Params,
+    res: &mut PolyMatrixNTT,
+    a: &PolyMatrixNTT,
+    b: &PolyMatrixNTT,
+    _start_inner_dim: usize,
+) {
+    assert_eq!(res.rows, a.rows);
+    assert_eq!(res.cols, b.cols);
+    assert_eq!(res.rows, 1);
+    assert_eq!(res.cols, 1);
+
+    assert_eq!(a.cols, b.rows);
+    assert_eq!(params.crt_count * params.poly_len, 2 * 2048);
+
+    let a_ptr = a.as_slice().as_ptr();
+    let b_ptr = b.as_slice().as_ptr();
+    let res_ptr = res.as_mut_slice().as_mut_ptr();
+    let pol_sz = params.poly_len;
+
+    for idx in (0..pol_sz).step_by(8) {
+        let mut sum_lo = [0u128; 8];
+        let mut sum_hi = [0u128; 8];
+
+        for k in 0..a.cols {
+            let p_x = unsafe { a_ptr.add(k * 2 * pol_sz + idx) };
+            let p_y = unsafe { b_ptr.add(k * 2 * pol_sz + idx) };
+
+            let x = unsafe { std::ptr::read_unaligned(p_x as *const [u64; 8]) };
+            let y = unsafe { std::ptr::read_unaligned(p_y as *const [u64; 8]) };
+
+            for i in 0..8 {
+                let x_lo = x[i];
+                let x_hi = x[i] >> 32;
+                let y_lo = y[i];
+                let y_hi = y[i] >> 32;
+
+                let prod_lo = (x_lo as u128) * (y_lo as u128);
+                let prod_hi = (x_hi as u128) * (y_hi as u128);
+
+                sum_lo[i] = sum_lo[i].checked_add(prod_lo).expect("Overflow occurred in sum_lo calculation");
+                sum_hi[i] = sum_hi[i].checked_add(prod_hi).expect("Overflow occurred in sum_hi calculation");
+            }
+        }
+
+        let p_z = unsafe { res_ptr.add(idx) };
+        for i in 0..8 {
+            unsafe { std::ptr::write_unaligned(p_z.add(i) as *mut u64, sum_lo[i] as u64) };
+        }
+
+        let p_z = unsafe { res_ptr.add(pol_sz + idx) };
+        for i in 0..8 {
+            unsafe { std::ptr::write_unaligned(p_z.add(i) as *mut u64, sum_hi[i] as u64) };
+        }
+    }
+}
+
+// pub fn fast_multiply_no_reduce(
+//     params: &Params,
+//     res: &mut PolyMatrixNTT,
+//     a: &PolyMatrixNTT,
+//     b: &PolyMatrixNTT,
+//     _start_inner_dim: usize,
+// ) {
+//     assert_eq!(res.rows, a.rows);
+//     assert_eq!(res.cols, b.cols);
+//     assert_eq!(res.rows, 1);
+//     assert_eq!(res.cols, 1);
+
+//     assert_eq!(a.cols, b.rows);
+//     assert_eq!(params.crt_count * params.poly_len, 2 * 2048);
+
+//     let a_slice = a.as_slice();
+//     let b_slice = b.as_slice();
+//     let res_slice = res.as_mut_slice();
+//     let pol_sz = params.poly_len;
+
+//     for idx in (0..pol_sz).step_by(8) {
+//         let mut sum_lo = 0u64;
+//         let mut sum_hi = 0u64;
+
+//         for k in 0..a.cols {
+//             let p_x = &a_slice[k * 2 * pol_sz + idx] as *const u64;
+//             let p_y = &b_slice[k * 2 * pol_sz + idx] as *const u64;
+
+//             let x_lo: u64 = unsafe { *p_x };
+//             let x_hi: u64 = unsafe { *p_x.add(1) };
+//             let y_lo: u64 = unsafe { *p_y };
+//             let y_hi: u64 = unsafe { *p_y.add(1) };
+
+//             let product_lo = x_lo as u128 * y_lo as u128;
+//             let product_hi = x_hi as u128 * y_hi as u128;
+
+//             sum_lo += (product_lo & 0xFFFFFFFFFFFFFFFF) as u64;
+//             sum_hi += (product_hi & 0xFFFFFFFFFFFFFFFF) as u64;
+//         }
+
+//         res_slice[idx] = sum_lo;
+//         res_slice[pol_sz + idx] = sum_hi;
+//     }
+// }
+
+
+
+
+
 pub fn condense_matrix<'a>(params: &'a Params, a: &PolyMatrixNTT<'a>) -> PolyMatrixNTT<'a> {
     let mut res = PolyMatrixNTT::zero(params, a.rows, a.cols);
     for i in 0..a.rows {
@@ -757,28 +867,40 @@ pub fn uncondense_matrix<'a>(params: &'a Params, a: &PolyMatrixNTT<'a>) -> PolyM
     res
 }
 
-pub fn multiply_add_poly_avx(_params: &Params, res: &mut [u64], a: &[u64], b: &[u64]) {
-    unsafe {
-        let a_ptr = a.as_ptr();
-        let b_ptr = b.as_ptr();
-        let res_ptr = res.as_mut_ptr();
-        for i in (0..res.len()).step_by(8) {
-            let p_x = a_ptr.add(i);
-            let p_y = b_ptr.add(i);
-            let p_z = res_ptr.add(i);
+// #[cfg(target_feature="axv512f")]
+// pub fn multiply_add_poly_avx(_params: &Params, res: &mut [u64], a: &[u64], b: &[u64]) {
+//     unsafe {
+//         let a_ptr = a.as_ptr();
+//         let b_ptr = b.as_ptr();
+//         let res_ptr = res.as_mut_ptr();
+//         for i in (0..res.len()).step_by(8) {
+//             let p_x = a_ptr.add(i);
+//             let p_y = b_ptr.add(i);
+//             let p_z = res_ptr.add(i);
 
-            let x = _mm512_load_si512(p_x as *const _);
-            let y = _mm512_load_si512(p_y as *const _);
-            let z = _mm512_load_si512(p_z as *const _);
+//             let x = _mm512_load_si512(p_x as *const _);
+//             let y = _mm512_load_si512(p_y as *const _);
+//             let z = _mm512_load_si512(p_z as *const _);
 
-            let product = _mm512_mul_epu32(x, y);
-            let out = _mm512_add_epi64(z, product);
+//             let product = _mm512_mul_epu32(x, y);
+//             let out = _mm512_add_epi64(z, product);
 
-            _mm512_store_si512(p_z as *mut _, out);
-        }
-    }
-}
+//             _mm512_store_si512(p_z as *mut _, out);
+//         }
+//     }
+// }
 
+// #[cfg(not(target_feature="axv512f"))]
+// pub fn multiply_add_poly_avx(params: &Params, res: &mut [u64], a: &[u64], b: &[u64]) {
+//     assert_eq!(res.len(), a.len());
+//     assert_eq!(res.len(), b.len());
+
+//     for i in 0..res.len() {
+//         res[i] += a[i] * b[i];
+//     }
+// }
+
+#[cfg(target_feature="axv512f")]
 pub fn multiply_poly_avx(_params: &Params, res: &mut [u64], a: &[u64], b: &[u64]) {
     unsafe {
         let a_ptr = a.as_ptr();
@@ -799,6 +921,18 @@ pub fn multiply_poly_avx(_params: &Params, res: &mut [u64], a: &[u64], b: &[u64]
         }
     }
 }
+
+#[cfg(not(target_feature="axv512f"))]
+pub fn multiply_poly_avx(_params: &Params, res: &mut [u64], a: &[u64], b: &[u64]) {
+    assert_eq!(res.len(), a.len());
+    assert_eq!(res.len(), b.len());
+
+    for i in 0..res.len() {
+        res[i] = a[i] * b[i];
+    }
+}
+
+
 
 pub fn fast_add_into_no_reduce(res: &mut PolyMatrixNTT, a: &PolyMatrixNTT) {
     assert!(res.rows == a.rows);
