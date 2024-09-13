@@ -9,14 +9,12 @@ This is joint work with [David Wu](https://www.cs.utexas.edu/~dwu4/).
 To build and run this code:
 1. The original YPIR can only be compiled and run on CPUs that support avx512f. **This repo has made some modifications to the source code, making it possible to compile and run on CPUs that do not support avx512f.** Of course, we provide conditional compilation. If your CPU supports avx512f, the code will automatically select the corresponding avx512f code implementation during compilation.(Ensure you are running on Ubuntu, and that AVX-512 is available on the CPU (you can run `lscpu` and look for the `avx512f` flag).
 Our benchmarks were collected using the AWS `r6i.16xlarge` instance type, which has all necessary CPU features.)
-
-1. 
 2. Run `sudo apt-get update && sudo apt-get install -y build-essential`.
-3. [Install Rust using rustup](https://www.rust-lang.org/tools/install) using `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`.
+2. [Install Rust using rustup](https://www.rust-lang.org/tools/install) using `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`.
   - Select `1) Proceed with installation (default)` when prompted
   - After installation, configure the current shell as instructed by running `source "$HOME/.cargo/env"`
-4. Run `git clone https://github.com/menonsamir/ypir.git` and `cd ypir`.
-5. Run `cargo run --release -- 1073741824` to run YPIR on a random database consisting of 1073741824 bits (~134 MB).
+3. Run `git clone https://github.com/menonsamir/ypir.git` and `cd ypir`.
+4. Run `cargo run --release -- 1073741824` to run YPIR on a random database consisting of 1073741824 bits (~134 MB).
 The first time you run this command, Cargo will download and install the necessary libraries to build the code (~2 minutes);
 later calls will not take as long. Stability warnings can be safely ignored. 
 See below for details on how to interpret the measurements.
