@@ -29,10 +29,16 @@ struct Args {
     #[clap(long, short, action)]
     verbose: bool,
 }
-
+/// cargo run --release --bin run -- 15536
+/// 程序运行的入口就在下面
 #[cfg(feature = "server")]
 fn main() {
+    println!("src/bin/run.rs");
+    // 把命令行的输入解析为 struct Args
     let args = Args::parse();
+    // Args { num_items: 15536, item_size_bits: None, num_clients: None, trials: None, is_simplepir: false, out_report_json: None, verbose: false }
+    println!("args: {:?}", args);
+    // unpcak
     let Args {
         num_items,
         item_size_bits,
@@ -53,9 +59,13 @@ fn main() {
         env_logger::init();
     }
 
+    // 如果对应的参数输入为None，那么就使用后面的默认参数
     let item_size_bits = item_size_bits.unwrap_or(1);
     let num_clients = num_clients.unwrap_or(1);
+    // trials 是什么意思？
     let trials = trials.unwrap_or(5);
+
+    // 没太理解到，1. item_size_bits 是什么意思？指的是数据库一行数据的大小吗？2. 为什么不能大于 8 ？
 
     if item_size_bits > 8 && !is_simplepir {
         panic!("Items can be at must be at most 8 bits.");
@@ -74,8 +84,10 @@ fn main() {
         trials
     );
 
+    // 核心是运行了这个函数
     let measurement =
         run_ypir_batched(num_items, item_size_bits, num_clients, is_simplepir, trials);
+
     println!(
         "Measurement completed. See the README for details on what the following fields mean."
     );

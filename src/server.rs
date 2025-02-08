@@ -27,27 +27,37 @@ use super::{
     util::*,
 };
 
+/// 生成 RLWE 明文空间中的一个明文多项式
+/// 更具体的，参考 CDKS21 算法2中的 X^{N/2^\ell}, -X^{N / 2^\ell}
+/// \ell 的范围是 [1, log(N)]
 pub fn generate_y_constants<'a>(
     params: &'a Params,
 ) -> (Vec<PolyMatrixNTT<'a>>, Vec<PolyMatrixNTT<'a>>) {
     let mut y_constants = Vec::new();
     let mut neg_y_constants = Vec::new();
+
+    // 从 \ell = 1 开始遍历到 \ell = log (N)
     for num_cts_log2 in 1..params.poly_len_log2 + 1 {
+        // 2^\ell
         let num_cts = 1 << num_cts_log2;
 
         // Y = X^(poly_len / num_cts)
+        // N/2^{\ell}
+        // 把这个对应位置上的系数置为1即可，其余系数都是0
         let mut y_raw = PolyMatrixRaw::zero(params, 1, 1);
         y_raw.data[params.poly_len / num_cts] = 1;
         let y = y_raw.ntt();
 
+        // 在 Rq 下取负数，就是把对应的系数置为 Rq 下的相反数
         let mut neg_y_raw = PolyMatrixRaw::zero(params, 1, 1);
         neg_y_raw.data[params.poly_len / num_cts] = params.modulus - 1;
         let neg_y = neg_y_raw.ntt();
 
+        // 保存
         y_constants.push(y);
         neg_y_constants.push(neg_y);
     }
-
+    // 返回
     (y_constants, neg_y_constants)
 }
 

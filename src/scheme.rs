@@ -17,6 +17,7 @@ pub fn run_ypir_batched(
     is_simplepir: bool,
     trials: usize,
 ) -> Measurement {
+    // 根据输入获取参数对象
     let params = if is_simplepir {
         params_for_scenario_simplepir(num_items as u64, item_size_bits as u64)
     } else {
@@ -231,6 +232,7 @@ pub fn run_simple_ypir_on_params<const K: usize>(params: Params, trials: usize) 
     final_measurement
 }
 
+// 核心的方法
 pub fn run_ypir_on_params<const K: usize>(
     params: Params,
     is_simplepir: bool,
@@ -534,7 +536,8 @@ mod test {
         let params = params_for_scenario_simplepir(1 << 14, 16384 * 8);
         let pt_iter = std::iter::repeat_with(|| (u16::sample() as u64 % params.pt_modulus) as u16);
         let y_server = YServer::<u16>::new(&params, pt_iter, true, false, true);
-        let mut offline_values = y_server.perform_offline_precomputation_simplepir(None, None, None);
+        let mut offline_values =
+            y_server.perform_offline_precomputation_simplepir(None, None, None);
 
         let target_row = fastrand::usize(..params.db_rows());
 

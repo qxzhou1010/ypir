@@ -43,6 +43,9 @@ pub fn pack_query(params: &Params, query: &[u64]) -> AlignedMemory64 {
     aligned_query_packed
 }
 
+///   compute the matrix: 2行
+/// [      -a^T         ]
+/// [ \tilde s a^T + E ]
 pub fn get_reg_sample<'a>(
     params: &'a Params,
     sk_reg: &PolyMatrixRaw<'a>,
@@ -57,7 +60,9 @@ pub fn get_reg_sample<'a>(
         &DiscreteGaussian::init(params.noise_width),
         rng,
     );
+    // s * a
     let b_p = &sk_reg.ntt() * &a.ntt();
+    // s*a  + e
     let b = &e.ntt() + &b_p;
     let mut p = PolyMatrixNTT::zero(params, 2, 1);
     p.copy_into(&(-&a).ntt(), 0, 0);
@@ -65,6 +70,9 @@ pub fn get_reg_sample<'a>(
     p
 }
 
+/// 默认生成 (2, m) 的 Rq 下的矩阵
+/// 2 是2行，m 就是列数
+/// 而这里只对第一行填充随机的公钥
 pub fn get_fresh_reg_public_key<'a>(
     params: &'a Params,
     sk_reg: &PolyMatrixRaw<'a>,
@@ -79,7 +87,9 @@ pub fn get_fresh_reg_public_key<'a>(
     }
     p
 }
-
+/// 本质上就是生成 num_exp 个 KeySwicthKey
+/// num_exp 最大值是 log(N)
+/// 依此生成 Sub(*, t), t = (N / 2^i) + 1 所对应的 KeySwitchKey
 pub fn raw_generate_expansion_params<'a>(
     params: &'a Params,
     sk_reg: &PolyMatrixRaw<'a>,
@@ -88,16 +98,24 @@ pub fn raw_generate_expansion_params<'a>(
     rng: &mut ChaCha20Rng,
     rng_pub: &mut ChaCha20Rng,
 ) -> Vec<PolyMatrixNTT<'a>> {
+    // Gadget vector
     let g_exp = build_gadget(params, 1, m_exp);
     debug!("using gadget base {}", g_exp.get_poly(0, 1)[0]);
     let g_exp_ntt = g_exp.ntt();
     let mut res = Vec::new();
 
+    // num_exp 最大值是 log(N)
     for i in 0..num_exp {
+        // 这里的 t 和后续做 Sub 操作的 t 是一一对应起来的
+        // t = (N / 2^i) + 1
         let t = (params.poly_len / (1 << i)) + 1;
+        // Sub(s), 也可以理解为 KSKeyGen(CDKS21 文章中的2.4) 中的第一个输入 s
+        // 对私钥 s 做 Sub操作，得到一个新的私钥
         let tau_sk_reg = automorph_alloc(&sk_reg, t);
+        // s * g, 使用 Ntt 加速乘法
+        // 下面就是在生成 KeySwitcKey
+        // 本质上就是在新密钥 tak_sk_reg 下对 old 密钥 sk_reg 进行加密, 得到的一个 RLWE密文
         let prod = &tau_sk_reg.ntt() * &g_exp_ntt;
-
         // let w_exp_i = client.encrypt_matrix_reg(&prod, rng, rng_pub);
         let sample = get_fresh_reg_public_key(params, &sk_reg, m_exp, rng, rng_pub);
         let w_exp_i = &sample + &prod.pad_top(1);
